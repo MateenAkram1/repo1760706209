@@ -2,24 +2,22 @@ import * as nodemailer from 'nodemailer';
 import * as sgMail from '@sendgrid/mail';
 import { Resend } from 'resend';
 
-import env from '../env';
-
 // Initialize providers
 const smtpTransporter = nodemailer.createTransport({
-  host: env.smtp.host,
-  port: env.smtp.port,
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
   secure: false,
   auth: {
-    user: env.smtp.user,
-    pass: env.smtp.password,
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD,
   },
 });
 
-if (env.sendgrid.apiKey) {
-  sgMail.setApiKey(env.sendgrid.apiKey);
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 }
 
-const resend = env.resend.apiKey ? new Resend(env.resend.apiKey) : null;
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 interface EmailData {
   to: string;
@@ -29,28 +27,28 @@ interface EmailData {
 }
 
 export const sendEmail = async (data: EmailData) => {
-  const provider = env.emailProvider;
+  const provider = process.env.EMAIL_PROVIDER || 'smtp';
 
   switch (provider) {
     case 'smtp':
-      if (!env.smtp.host) {
+      if (!process.env.SMTP_HOST) {
         throw new Error('SMTP host not configured');
       }
       {
         const emailDefaults = {
-          from: env.smtp.from,
+          from: process.env.SMTP_FROM,
         };
         await smtpTransporter.sendMail({ ...emailDefaults, ...data });
       }
       break;
 
     case 'sendgrid':
-      if (!env.sendgrid.apiKey) {
+      if (!process.env.SENDGRID_API_KEY) {
         throw new Error('SendGrid API key not configured');
       }
       await sgMail.send({
         to: data.to,
-        from: env.smtp.from || 'noreply@example.com', // Use SMTP_FROM or default
+        from: process.env.SMTP_FROM || 'noreply@example.com', // Use SMTP_FROM or default
         subject: data.subject,
         html: data.html,
         text: data.text,
@@ -58,16 +56,24 @@ export const sendEmail = async (data: EmailData) => {
       break;
 
     case 'resend':
-      if (!env.resend.apiKey || !resend) {
+      if (!process.env.RESEND_API_KEY || !resend) {
         throw new Error('Resend API key not configured');
       }
-      await resend.emails.send({
-        from: env.smtp.from || 'noreply@example.com', // Use SMTP_FROM or default
-        to: data.to,
-        subject: data.subject,
-        html: data.html,
-        text: data.text,
-      });
+      {
+        const { data: resendData, error } = await resend.emails.send({
+          from: process.env.SMTP_FROM || 'onboarding@resend.dev',
+          to: [data.to],
+          subject: data.subject,
+          html: data.html,
+          text: data.text,
+        });
+
+        if (error) {
+          throw new Error(`Resend error: ${error.message}`);
+        }
+
+        console.log('Resend email sent successfully:', resendData);
+      }
       break;
 
     default:
